@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador 3D de Planta de Tratamiento de Agua Potable (PTAP)</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #0b132b;
+            color: #ffffff;
+        }
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+        }
+        #ui-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 360px;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            z-index: 10;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        h1 {
+            font-size: 1.2rem;
+            margin-top: 0;
+            color: #38bdf8;
+            border-bottom: 2px solid #38bdf8;
+            padding-bottom: 8px;
+        }
+        .control-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            font-size: 0.85rem;
+            margin-bottom: 5px;
+            color: #cbd5e1;
+        }
+        input[type="range"] {
+            width: 100%;
+            accent-color: #38bdf8;
+            cursor: pointer;
+        }
+        .value-display {
+            float: right;
+            font-weight: bold;
+            color: #38bdf8;
+        }
+        #metrics-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 340px;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(52, 211, 153, 0.3);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            z-index: 10;
+        }
+        h2 {
+            font-size: 1.1rem;
+            margin-top: 0;
+            color: #34d399;
+            border-bottom: 2px solid #34d399;
+            padding-bottom: 8px;
+        }
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 0.9rem;
+            border-bottom: 1px dashed rgba(255,255,255,0.1);
+            padding-bottom: 5px;
+        }
+        .metric-val {
+            font-weight: bold;
+            color: #34d399;
+        }
+        #tooltip {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: 1px solid #38bdf8;
+            pointer-events: none;
+            font-size: 0.9rem;
+            z-index: 10;
+        }
+    </style>
+    <!-- Three.js y OrbitControls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+
+    <div id="ui-panel">
+        <h1>Controles de Proceso PTAP</h1>
+        
+        <div class="control-group">
+            <label>Caudal de Entrada ($Q$): <span id="val-q" class="value-display">0.050</span> m³/s</label>
+            <input type="range" id="range-q" min="0.010" max="0.200" step="0.001" value="0.050">
+        </div>
+
+        <div class="control-group">
+            <label>Presión de Bombeo ($P$): <span id="val-p" class="value-display">2.50</span> bar</label>
+            <input type="range" id="range-p" min="1.00" max="6.00" step="0.05" value="2.50">
+        </div>
+
+        <div class="control-group">
+            <label>Pureza / Calidad Inicial (Objetivo): <span id="val-pureza" class="value-display">85.0</span> NTU (inv.)</label>
+            <input type="range" id="range-pureza" min="10.0" max="250.0" step="0.5" value="85.0">
+        </div>
+
+        <div class="control-group">
+            <label>Eficiencia de Coagulación/Floculación: <span id="val-coag" class="value-display">92.5</span> %</label>
+            <input type="range" id="range-coag" min="50.0" max="99.5" step="0.5" value="92.5">
+        </div>
+    </div>
+
+    <div id="metrics-panel">
+        <h2>Ingeniería y Economía</h2>
+        <div class="metric-row">
+            <span>Volumen Diario:</span>
+            <span id="m-vol" class="metric-val">4,320.00 m³</span>
+        </div>
+        <div class="metric-row">
+            <span>Pérdida de Carga ($h_f$):</span>
+            <span id="m-hf" class="metric-val">0.00 m</span>
+        </div>
+        <div class="metric-row">
+            <span>Costo Bombeo Mensual:</span>
+            <span id="m-costo" class="metric-val">$0.00 USD</span>
+        </div>
+        <div class="metric-row">
+            <span>Sección Óptima Canal ($b \times y$):</span>
+            <span id="m-canal" class="metric-val">0.0m × 0.0m</span>
+        </div>
+        <div class="metric-row">
+            <span>Turbidez Final Salida:</span>
+            <span id="m-turb" class="metric-val">0.00 NTU</span>
+        </div>
+        <div class="metric-row">
+            <span>Alcance Chorro Vertedero ($X_{max}$):</span>
+            <span id="m-chorro" class="metric-val">0.00 m</span>
+        </div>
+    </div>
+
+    <div id="tooltip">Use el ratón para rotar, hacer zoom y explorar la Planta de Tratamiento 3D.</div>
+
+    <script>
+        // --- CONFIGURACIÓN DE LA ESCENA 3D ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0b132b);
+        scene.fog = new THREE.FogExp2(0x0b132b, 0.015);
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.setFocalLength = 50;
+        camera.position.set(0, 25, 35);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        container.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.maxPolarAngle = Math.PI / 2 - 0.05; // No bajar del suelo
+
+        // Iluminación
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(20, 40, 20);
+        dirLight.castShadow = true;
+        scene.add(dirLight);
+
+        // Suelo de la Planta
+        const groundGeo = new THREE.PlaneGeometry(100, 100);
+        const groundMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 });
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // --- CREACIÓN DE LAS ESTRUCTURAS DE LA PTAP ---
+        // 1. Estación de Bombeo / Captación
+        const pumpGroup = new THREE.Group();
+        pumpGroup.position.set(-20, 0, 0);
+        const pumpHouse = new THREE.Mesh(
+            new THREE.BoxGeometry(6, 4, 6),
+            new THREE.MeshStandardMaterial({ color: 0x475569 })
+        );
+        pumpHouse.position.y = 2;
+        pumpHouse.castShadow = true;
+        pumpGroup.add(pumpHouse);
+        scene.add(pumpGroup);
+
+        // 2. Floculador / Mezclador Rápido
+        const flocGroup = new THREE.Group();
+        flocGroup.position.set(-10, 0, 0);
+        const flocTank = new THREE.Mesh(
+            new THREE.CylinderGeometry(2.5, 2.5, 5, 32),
+            new THREE.MeshStandardMaterial({ color: 0x0284c7, transparent: true, opacity: 0.7 })
+        );
+        flocTank.position.y = 2.5;
+        flocGroup.add(flocTank);
+        scene.add(flocGroup);
+
+        // 3. Sedimentador Rectangular
+        const sedGroup = new THREE.Group();
+        sedGroup.position.set(2, 0, 0);
+        const sedTank = new THREE.Mesh(
+            new THREE.BoxGeometry(10, 3, 6),
+            new THREE.MeshStandardMaterial({ color: 0x0369a1, transparent: true, opacity: 0.6 })
+        );
+        sedTank.position.y = 1.5;
+        sedGroup.add(sedTank);
+        scene.add(sedGroup);
+
+        // 4. Filtros Rápidos de Arena
+        const filterGroup = new THREE.Group();
+        filterGroup.position.set(15, 0, 0);
+        const filterTank = new THREE.Mesh(
+            new THREE.BoxGeometry(4, 3, 6),
+            new THREE.MeshStandardMaterial({ color: 0x0ea5e9, transparent: true, opacity: 0.6 })
+        );
+        filterTank.position.y = 1.5;
+        filterGroup.add(filterTank);
+        scene.add(filterGroup);
+
+        // Tuberías de Interconexión
+        const pipeMaterial = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.8, roughness: 0.2 });
+        
+        function createPipe(x1, z1, x2, z2) {
+            const length = Math.hypot(x2 - x1, z2 - z1);
+            const pipeGeo = new THREE.CylinderGeometry(0.4, 0.4, length, 16);
+            const pipe = new THREE.Mesh(pipeGeo, pipeMaterial);
+            pipe.position.set((x1 + x2) / 2, 1.5, (z1 + z2) / 2);
+            pipe.rotation.x = Math.PI / 2;
+            if (x2 !== x1) pipe.rotation.z = Math.atan2(x2 - x1, z2 - z1);
+            scene.add(pipe);
+        }
+        createPipe(-17, 0, -12.5, 0);
+        createPipe(-7.5, 0, -3, 0);
+        createPipe(7, 0, 13, 0);
+
+        // Partículas de Agua Dinámicas (Flujo)
+        const particleCount = 200;
+        const particleGeo = new THREE.SphereGeometry(0.15, 8, 8);
+        const particleMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+        const particleInstanced = new THREE.InstancedMesh(particleGeo, particleMat, particleCount);
+        scene.add(particleInstanced);
+
+        const dummy = new THREE.Object3D();
+        const particleProgress = [];
+        for (let i = 0; i < particleCount; i++) {
+            particleProgress.push(Math.random());
+        }
+
+        // --- REFERENCIAS DE LA UI ---
+        const rangeQ = document.getElementById('range-q');
+        const rangeP = document.getElementById('range-p');
+        const rangePureza = document.getElementById('range-pureza');
+        const rangeCoag = document.getElementById('range-coag');
+
+        const valQ = document.getElementById('val-q');
+        const valP = document.getElementById('val-p');
+        const valPureza = document.getElementById('val-pureza');
+        const valCoag = document.getElementById('val-coag');
+
+        const mVol = document.getElementById('m-vol');
+        const mHf = document.getElementById('m-hf');
+        const mCosto = document.getElementById('m-costo');
+        const mCanal = document.getElementById('m-canal');
+        const mTurb = document.getElementById('m-turb');
+        const mChorro = document.getElementById('m-chorro');
+
+        // --- MODELO MATEMÁTICO DE INGENIERÍA DE AGUA ---
+        function updateCalculations() {
+            // Valores decimales exactos
+            const Q = parseFloat(rangeQ.value); // m³/s
+            const P_bar = parseFloat(rangeP.value); // bar
+            const turbInit = parseFloat(rangePureza.value); // NTU
+            const coagEff = parseFloat(rangeCoag.value) / 100.0; // fracción
+
+            valQ.toFixed ? null : null; // asegurar formato
+            valQ.innerText = Q.toFixed(3);
+            valP.innerText = P_bar.toFixed(2);
+            valPureza.innerText = turbInit.toFixed(1);
+            valCoag.innerText = (coagEff * 100.0).toFixed(1);
+
+            // 1. Volumen Diario exacto ($V = Q \times 86400$)
+            const volumenDiario = Q * 86400.0; // m³/día
+            mVol.innerText = volumenDiario.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " m³";
+
+            // 2. Pérdida de carga por fricción ($h_f$)
+            // Usando fórmula simplificada de Darcy-Weisbach o Hazen-Williams adaptada para diámetro nominal de conducción D = 0.5m, L = 50m
+            const D = 0.5; // m
+            const A_pipe = Math.PI * Math.pow(D, 2) / 4.0;
+            const V_vel = Q / A_pipe; // Velocidad del agua m/s
+            const f = 0.02; // Factor de fricción estimado
+            const L = 60.0; // Longitud total equivalente en metros
+            const g = 9.81;
+            const hf = (f * (L / D) * Math.pow(V_vel, 2)) / (2.0 * g);
+            mHf.innerText = hf.toFixed(3) + " m";
+
+            // 3. Estimación del costo de bombeo mensual
+            // Potencia = (Gamma * Q * Ht) / (Eficiencia bomba ~ 0.75)
+            // Gamma agua = 9810 N/m³
+            // Altura total Ht = Presión en metros (P_bar * 10.2) + hf
+            const Ht = (P_bar * 10.2) + hf;
+            const potenciaKW = (9810.0 * Q * Ht) / (0.75 * 1000.0);
+            const kwhMes = potenciaKW * 24.0 * 30.0;
+            const costoKwh = 0.12; // USD por kWh promedio
+            const costoMensual = kwhMes * costoKwh;
+            mCosto.innerText = "$" + costoMensual.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " USD";
+
+            // 4. Ecuaciones cuadráticas para dimensionamiento de canal rectangular óptimo
+            // Para sección hidráulica óptima en canal abierto rectangular, b = 2 * y
+            // Q = (1 / n) * A * R^(2/3) * S^(1/2) -> despejando aproximación cuadrática para el tirante y
+            const n_manning = 0.013; // Concreto pulido
+            const S_pendiente = 0.001; // Pendiente de fondo
+            // Aproximación analítica resolviendo por trinomio cuadrático equivalente
+            const y_tirante = Math.pow((Q * n_manning) / (2.0 * Math.pow(0.5, 2/3) * Math.sqrt(S_pendiente)), 3/8) * 1.45;
+            const b_ancho = 2.0 * y_tirante;
+            mCanal.innerText = b_ancho.toFixed(2) + " m × " + y_tirante.toFixed(2) + " m";
+
+            // 5. Calidad del agua final (remoción de turbidez en cascada)
+            // Turbidez final = Turbidez Inicial * (1 - Coag_eff) * Factor de Filtración (0.15)
+            const turbFinal = turbInit * (1.0 - coagEff) * 0.18;
+            mTurb.innerText = turbFinal.toFixed(2) + " NTU";
+
+            // 6. Ecuación cuadrática para trayectoria parabólica de chorro en vertedero
+            // y(x) = h_carga - (g * x²) / (2 * v_vertice²)
+            const v_vertice = Math.max(0.5, V_vel * 0.8);
+            const cargaH = 1.2; // altura de carga sobre el vertedero
+            // Distancia horizontal máxima donde y = 0
+            const x_max = Math.sqrt((2.0 * cargaH * Math.pow(v_vertice, 2)) / g);
+            mChorro.innerText = x_max.toFixed(2) + " m";
+        }
+
+        // Eventos de cambios en los controles
+        [rangeQ, rangeP, rangePureza, rangeCoag].forEach(elem => {
+            elem.addEventListener('input', updateCalculations);
+        });
+
+        // Inicializar cálculos al cargar
+        updateCalculations();
+
+        // --- BUCLE DE ANIMACIÓN ---
+        let clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+
+            const delta = clock.getDelta();
+            const Q_val = parseFloat(rangeQ.value);
+
+            // Animar partículas de flujo de agua
+            for (let i = 0; i < particleCount; i++) {
+                particleProgress[i] += delta * Q_val * 1.5;
+                if (particleProgress[i] > 1.0) particleProgress[i] = 0.0;
+
+                let p = particleProgress[i];
+                let posX = 0, posZ = 0;
+
+                // Trayectoria segmentada por etapas de la PTAP
+                if (p < 0.3) {
+                    // Bombeo a Floculador
+                    let t = p / 0.3;
+                    posX = THREE.MathUtils.lerp(-20, -10, t);
+                    posZ = 0;
+                } else if (p < 0.6) {
+                    // Floculador a Sedimentador
+                    let t = (p - 0.3) / 0.3;
+                    posX = THREE.MathUtils.lerp(-10, 2, t);
+                    posZ = 0;
+                } else if (p < 0.85) {
+                    // Sedimentador a Filtro
+                    let t = (p - 0.6) / 0.25;
+                    posX = THREE.MathUtils.lerp(2, 15, t);
+                    posZ = 0;
+                } else {
+                    // Salida de Agua Potable Tratada
+                    let t = (p - 0.85) / 0.15;
+                    posX = THREE.MathUtils.lerp(15, 28, t);
+                    posZ = 0;
+                }
+
+                dummy.position.set(posX, 1.5 + Math.sin(p * Math.PI * 4) * 0.1, posZ);
+                dummy.scale.setScalar(1.0);
+                dummy.updateMatrix();
+                particleInstanced.setMatrixAt(i, dummy.matrix);
+            }
+            particleInstanced.instanceMatrix.needsUpdate = true;
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // Ajuste de ventana responsivo
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
